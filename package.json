@@ -1,0 +1,23 @@
+{
+  "name": "bootjs-config",
+  "version": "0.1.0",
+  "description": "Configuration files loader",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "js-yaml": "^3.8.1",
+    "lodash": "^4.17.4"
+  },
+  "repository": {
+    "type": "https",
+    "url": "https://github.com/guoguolong/bootjs-config.git"
+  },
+  "keywords": [
+    "Configuration",
+    "Loader"
+  ],
+  "author": "Allen Guo",
+  "license": "MIT"
+}
