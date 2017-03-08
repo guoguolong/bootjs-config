@@ -75,7 +75,8 @@ module.exports = function(configBaseDir, options) {
     config = loadConfigs(config, configBaseDir + 'autoloadings/');
     config = loadConfigs(config, configEnvDir);
     config = loadConfigs(config, configEnvDir + 'autoloadings/');
-    config.loadPlugins = function(app, callback) {
+    config.loadPlugins = function(app, options) {
+        options = options || {};
 
         app.addPlugin = function(name, value) {
             let plugins = this.getPlugin();
@@ -105,8 +106,7 @@ module.exports = function(configBaseDir, options) {
                 if (pluginConf.localModuleBaseDir) modulePath = pluginConf.localModuleBaseDir + modulePath;
                 let pluginObj = require(modulePath)(app, pluginConf);
                 app.addPlugin(pluginConf.name, pluginObj);
-                pluginObj.init(config);
-                if(callback) callback(pluginObj);
+                pluginObj.init(config, options);
             } catch (e) {
                 console.error(e);
             }
