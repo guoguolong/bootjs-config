@@ -1,6 +1,7 @@
 "use strict";
 
 const _ = require('lodash');
+const path = require('path');
 const fs = require('fs');
 const yaml = require('js-yaml');
 
@@ -9,25 +10,32 @@ const yaml = require('js-yaml');
  *  @param options = {
  *     excludeFiles: [排除的文件列表] // 暂未实现.
  *     env: "<环境变量标识>" // 传入，则不再检查NODE_ENV和env.js文件.
+ *     preConfig: 预加载的config对象.
  *  }
  *
  */
 module.exports = function(configBaseDir, options) {
+    function loadConfig(filePath, config, options) {
+        let moduleConfig = require(filePath);
+        if (_.isFunction(moduleConfig)) {
+            moduleConfig = moduleConfig(config, options);
+        }
+        moduleConfig.params = {}; // params是内置节点，使用无效.
+        _.merge(config, moduleConfig);
+        return config;
+    }
+
     function loadConfigs(config, baseDir, excludeFile) {
         if (fs.existsSync(baseDir)) {
             let dir = fs.readdirSync(baseDir);
-            dir.forEach(function (item) { // 加载扩展名为.js的文件.
-                let stats = fs.statSync(baseDir + item);
+            dir.forEach(function(item) { // 加载扩展名为.js的文件.
+                let itemPath = path.resolve(baseDir, item);
+                let stats = fs.statSync(itemPath);
                 if (stats.isFile() && item.match(/\.js$/)) {
                     if (excludeFile && item == excludeFile) {
                         return;
                     }
-                    let moduleConfig = require(baseDir + item);
-                    if (_.isFunction(moduleConfig)) {
-                        moduleConfig = moduleConfig(config);
-                    }
-                    moduleConfig.params = {}; // params是内置节点，使用无效.
-                    _.merge(config, moduleConfig);
+                    loadConfig(itemPath, config, options);
                 }
             });
         }
@@ -37,10 +45,11 @@ module.exports = function(configBaseDir, options) {
     function loadYamls(config, baseDir) {
         if (fs.existsSync(baseDir)) {
             let dir = fs.readdirSync(baseDir);
-            dir.forEach(function (item) { // 加载扩展名为.js的文件.
-                let stats = fs.statSync(baseDir + item);
+            dir.forEach(function(item) { // 加载扩展名为.js的文件.
+                let yamlPath = path.resolve(baseDir, item);
+                let stats = fs.statSync(yamlPath);
                 if (stats.isFile() && item.match(/\.yml$|yaml$/)) {
-                    let yamlConfig = yaml.safeLoad(fs.readFileSync(baseDir + item, 'utf8'));
+                    let yamlConfig = yaml.safeLoad(fs.readFileSync(yamlPath, 'utf8'));
                     _.merge(config, yamlConfig);
                 }
             });
@@ -48,13 +57,15 @@ module.exports = function(configBaseDir, options) {
         return config;
     }
 
-    let config = {};
+    options = options || {};
+    let config = options.preConfig && options.preConfig || {};
+    config.env = options.env || config.env;
+    config.params = config.params || {};
+
     // 1. 正规化config.env节点.
-    let configEnvBaseDir = configBaseDir + 'env/';
-    if (options && options.env) {
-        config.env = options.env;
-    } else {
-        let configEnvJs = configEnvBaseDir + 'env.js';
+    let configEnvBaseDir = path.join(configBaseDir, 'env/');
+    if (!config.env) {
+        let configEnvJs = path.join(configEnvBaseDir, 'env.js');
         if (process.env['NODE_ENV']) {
             config.env = process.env['NODE_ENV'];
         } else {
@@ -63,18 +74,20 @@ module.exports = function(configBaseDir, options) {
             }
         }
     }
-    let configEnvDir = config.env && configEnvBaseDir + config.env + '/';
-    
+    let configEnvDir = config.env && path.join(configEnvBaseDir, config.env);
+
     // 2. 加载参数配置文件，合并到config.params
     let yamlConfig = loadYamls({}, configBaseDir); // 遍历配置目录并加载 参数配置yaml文件 
-    yamlConfig = loadYamls(yamlConfig, configEnvDir);
-    config.params = yamlConfig || {};
+    if (configEnvDir) yamlConfig = loadYamls(yamlConfig, configEnvDir);
+    config.params = _.merge(yamlConfig, config.params);
 
     // 3. 加载配置目录、autoloadings、环境配置目录下所有配置文件
     config = loadConfigs(config, configBaseDir);
-    config = loadConfigs(config, configBaseDir + 'autoloadings/');
-    config = loadConfigs(config, configEnvDir);
-    config = loadConfigs(config, configEnvDir + 'autoloadings/');
+    config = loadConfigs(config, path.join(configBaseDir, 'autoloadings/'));
+    if (configEnvDir) {
+        config = loadConfigs(config, configEnvDir);
+        config = loadConfigs(config, path.join(configEnvDir, 'autoloadings/'));
+    }
     config.loadPlugins = function(app, options) {
         options = options || {};
 
@@ -96,17 +109,17 @@ module.exports = function(configBaseDir, options) {
             return plugins;
         };
 
-        config.plugins = config.plugins || {};
-        for (let pluginKey in config.plugins) {
-            let pluginConf = config.plugins[pluginKey];
-            pluginConf.env = config.env;
+        this.plugins = this.plugins || {};
+        for (let pluginKey in this.plugins) {
+            let pluginConf = this.plugins[pluginKey];
+            pluginConf.env = this.env;
             pluginConf.name = pluginConf.name || pluginKey;
             try {
                 let modulePath = pluginConf.moduleName;
-                if (pluginConf.localModuleBaseDir) modulePath = pluginConf.localModuleBaseDir + modulePath;
+                if (pluginConf.localModuleBaseDir) modulePath = path.join(pluginConf.localModuleBaseDir, modulePath);
                 let pluginObj = require(modulePath)(app, pluginConf);
                 app.addPlugin(pluginConf.name, pluginObj);
-                pluginObj.init(config, options);
+                pluginObj.init(this, options);
             } catch (e) {
                 console.error(e);
             }
